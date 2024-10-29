@@ -8,7 +8,7 @@ abstract  contract Ownable {
 
     error OwnableUnauthorizedAccount(address account);
 
-    event OwnershipTransferred(address oldOwner, address newOwner);
+    event OwnershipTransferred(address indexed  oldOwner, address indexed newOwner);
 
     constructor(address initialOwner) {
         if (initialOwner == address(0)) {
@@ -33,9 +33,20 @@ abstract  contract Ownable {
         }
     }
 
-    function _transferOwnership(address newOwner) public virtual onlyOwner {
+    function transferOwnership(address newOwner) public virtual onlyOwner {
+        if (newOwner == address(0)) {
+            revert OwnableInvalidOwner(address(0));
+        }
+        _transferOwnership(newOwner);
+    }
+
+    function _transferOwnership(address newOwner) internal virtual {
         address oldOwner = _owner;
         _owner = newOwner;
         emit OwnershipTransferred(oldOwner, newOwner);
+    }
+
+    function renounceOwnership() public virtual onlyOwner {
+        _transferOwnership(address(0));
     }
 }

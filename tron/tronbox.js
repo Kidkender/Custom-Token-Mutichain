@@ -38,15 +38,21 @@ module.exports = {
     compilers: {
       solc: {
         version: "0.8.6",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        },
       },
     },
   },
   // solc compiler optimize
   solc: {
-    //   optimizer: {
-    //     enabled: true,
-    //     runs: 200
-    //   },
+    optimizer: {
+      enabled: true,
+      runs: 200,
+    },
     //   evmVersion: 'istanbul'
   },
 };
