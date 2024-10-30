@@ -12,3 +12,5 @@ to deploy:
 ```bash
 source .env && tronbox migrate --network nile
 ```
+
+To interact with tron you need get api key at "https://tronscan.org/#/myaccount/apiKeys"
