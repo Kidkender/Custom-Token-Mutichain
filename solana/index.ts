@@ -1,7 +1,9 @@
 import {
   AccountLayout,
-  CpiGuardLayout,
+  createAssociatedTokenAccountInstruction,
   createMint,
+  createTransferInstruction,
+  getAssociatedTokenAddress,
   getMint,
   getOrCreateAssociatedTokenAccount,
   mintTo,
@@ -14,6 +16,8 @@ import {
   Keypair,
   LAMPORTS_PER_SOL,
   PublicKey,
+  SystemProgram,
+  Transaction,
   type Commitment,
 } from "@solana/web3.js";
 import * as fs from "fs";
@@ -68,17 +72,18 @@ async function createToken(
   return mint;
 }
 
+function createNewWallet(): Keypair {
+  const newWallet = Keypair.generate();
+  saveKeypair(newWallet);
+  return newWallet;
+}
+
 async function transferToken() {
-  const fromWallet = Keypair.generate();
+  const fromWallet = createNewWallet();
 
-  const fromAirdropSignature = await connection.requestAirdrop(
-    fromWallet.publicKey,
-    LAMPORTS_PER_SOL
-  );
+  aidropSolana(fromWallet.publicKey);
 
-  await connection.confirmTransaction(fromAirdropSignature);
-
-  const toWallet = Keypair.generate();
+  const toWallet = createNewWallet();
 
   // Create mint token
   const mint = await createToken(fromWallet);
@@ -116,6 +121,8 @@ async function transferToken() {
     fromWallet.publicKey,
     50 * LAMPORTS_PER_SOL
   );
+
+  console.log("transfer tx: ", signature);
 }
 
 async function getAllTokensOfAccount(address: PublicKey) {
@@ -172,14 +179,138 @@ async function getTokenTransactions(accountAddress: string) {
   signatures.forEach((signature) => getDetailTransaction(signature.signature));
 }
 
-async function main() {
-  // await transferToke();
-  await getAllTokensOfAccount(
-    new PublicKey("2TPDhtgQXJ9uR1njeSmae3KS62dMp6cW2WWdSEQYyAXo")
+async function generateSignedTransaction(
+  fromKeypair: Keypair,
+  toPublicKey: PublicKey,
+  amountSol: number
+): Promise<string> {
+  // const fromKeypair = Keypair.fromSecretKey(fromSecretKey);
+
+  const transaction = new Transaction().add(
+    SystemProgram.transfer({
+      fromPubkey: fromKeypair.publicKey,
+      toPubkey: toPublicKey,
+      lamports: amountSol * LAMPORTS_PER_SOL,
+    })
   );
+
+  transaction.recentBlockhash = (
+    await connection.getLatestBlockhash()
+  ).blockhash;
+
+  transaction.feePayer = fromKeypair.publicKey;
+  transaction.sign(fromKeypair);
+
+  const signedTransaction = transaction.serialize().toString("base64");
+  return signedTransaction;
+}
+
+async function generateSignedTokenTransaction(
+  fromKeypair: Keypair,
+  toPublicKey: PublicKey,
+  tokenMinterAddress: PublicKey,
+  amountToken: number
+): Promise<string> {
+  const fromTokenAccount = await getAssociatedTokenAddress(
+    tokenMinterAddress,
+    fromKeypair.publicKey
+  );
+  const toTokenAccount = await getAssociatedTokenAddress(
+    tokenMinterAddress,
+    toPublicKey
+  );
+
+  const transaction = new Transaction();
+  const accountInfo = await connection.getAccountInfo(toTokenAccount);
+
+  if (!accountInfo) {
+    transaction.add(
+      createAssociatedTokenAccountInstruction(
+        fromKeypair.publicKey,
+        toTokenAccount,
+        toPublicKey,
+        tokenMinterAddress
+      )
+    );
+  }
+
+  transaction.add(
+    createTransferInstruction(
+      fromTokenAccount,
+      toTokenAccount,
+      fromKeypair.publicKey,
+      amountToken * LAMPORTS_PER_SOL,
+      [],
+      TOKEN_PROGRAM_ID
+    )
+  );
+
+  transaction.recentBlockhash = (
+    await connection.getLatestBlockhash()
+  ).blockhash;
+
+  transaction.feePayer = fromKeypair.publicKey;
+  transaction.sign(fromKeypair);
+
+  const signedTransaction = transaction.serialize().toString("base64");
+  return signedTransaction;
+}
+
+async function submitSignedTransaction(signedTransactionBase64: string) {
+  try {
+    const signedTx = Transaction.from(
+      Buffer.from(signedTransactionBase64, "base64")
+    );
+
+    const txId = await connection.sendRawTransaction(signedTx.serialize(), {
+      skipPreflight: false,
+      preflightCommitment: "confirmed",
+    });
+
+    console.log("Tx successfully with tx: ", txId);
+  } catch (error) {
+    console.error("Error when submit tx: ", error);
+  }
+}
+
+async function main() {
+  const fromWallet = loadKeypair(
+    "627g2t7xE2JsMRRJb35idoenusW2AXjzqQxwydsaSm12"
+  );
+  const toPublicKey = new PublicKey(
+    "EPVaSvZ6iJrX819Kp5mokDWmMzxPdaWGXaYSk559ws6N"
+  );
+
+  const tokenAddress = new PublicKey(
+    "2nNxEe6WTmWMwH6VUSUN2AuhSosDgQKPiFvLMy2PCuyD"
+  );
+
+  if (!fromWallet) {
+    return;
+  }
+
+  // const signedTx = await generateSignedTransaction(
+  //   fromWallet,
+  //   toPublicKey,
+  //   0.1
+  // );
+
+  const signedTx = await generateSignedTokenTransaction(
+    fromWallet,
+    toPublicKey,
+    tokenAddress,
+    100
+  );
+
+  console.log("Tx: " + signedTx);
+  await submitSignedTransaction(signedTx);
+
+  // await transferToken();
+  // await getAllTokensOfAccount(
+  //   new PublicKey("2TPDhtgQXJ9uR1njeSmae3KS62dMp6cW2WWdSEQYyAXo")
+  // );
   //     await getInformationToken(
   //         new PublicKey("6YbpFbafin7XfP7X8NK6pPus7vWHpMzKe1RCSwsqzFHz"))
-
   // await getDetailTransaction("2NrN7iiwMU7KuBWiLxjosrjAJ2aStW4bufH65Cp8tMZGhhHtLg2ugDYZ22YT2RQYnRaTQ4McsX4UX8MKuCdUFgsK");
   //   await getTokenTransactions("BoKxSSv54PAuCFnKEqdiPewWYR1WeHPBpCoUQ7t3xyXV");
 }
