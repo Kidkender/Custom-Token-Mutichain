@@ -21,6 +21,7 @@ import {
   type Commitment,
 } from "@solana/web3.js";
 import * as fs from "fs";
+import * as bs58 from "bs58";
 
 const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
 
@@ -184,8 +185,6 @@ async function generateSignedTransaction(
   toPublicKey: PublicKey,
   amountSol: number
 ): Promise<string> {
-  // const fromKeypair = Keypair.fromSecretKey(fromSecretKey);
-
   const transaction = new Transaction().add(
     SystemProgram.transfer({
       fromPubkey: fromKeypair.publicKey,
@@ -201,7 +200,12 @@ async function generateSignedTransaction(
   transaction.feePayer = fromKeypair.publicKey;
   transaction.sign(fromKeypair);
 
-  const signedTransaction = transaction.serialize().toString("base64");
+  const signedTransaction = transaction.serialize().toString("hex");
+
+  // Hash of transaction
+  const hash = bs58.default.encode(transaction.signature as any);
+  console.log("hash: " + hash);
+
   return signedTransaction;
 }
 
@@ -252,15 +256,13 @@ async function generateSignedTokenTransaction(
   transaction.feePayer = fromKeypair.publicKey;
   transaction.sign(fromKeypair);
 
-  const signedTransaction = transaction.serialize().toString("base64");
+  const signedTransaction = transaction.serialize().toString("hex");
   return signedTransaction;
 }
 
-async function submitSignedTransaction(signedTransactionBase64: string) {
+async function submitSignedTransaction(signedTransaction: string) {
   try {
-    const signedTx = Transaction.from(
-      Buffer.from(signedTransactionBase64, "base64")
-    );
+    const signedTx = Transaction.from(Buffer.from(signedTransaction, "hex"));
 
     const txId = await connection.sendRawTransaction(signedTx.serialize(), {
       skipPreflight: false,
@@ -289,21 +291,22 @@ async function main() {
     return;
   }
 
-  // const signedTx = await generateSignedTransaction(
-  //   fromWallet,
-  //   toPublicKey,
-  //   0.1
-  // );
-
-  const signedTx = await generateSignedTokenTransaction(
+  const signedTx = await generateSignedTransaction(
     fromWallet,
     toPublicKey,
-    tokenAddress,
-    100
+    0.1
   );
 
   console.log("Tx: " + signedTx);
-  await submitSignedTransaction(signedTx);
+
+  // const signedTx = await generateSignedTokenTransaction(
+  //   fromWallet,
+  //   toPublicKey,
+  //   tokenAddress,
+  //   100
+  // );
+
+  // await submitSignedTransaction(signedTx);
 
   // await transferToken();
   // await getAllTokensOfAccount(
