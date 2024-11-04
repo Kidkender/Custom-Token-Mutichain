@@ -9,6 +9,7 @@ import {
   mintTo,
   TOKEN_PROGRAM_ID,
   transfer,
+  type Account,
 } from "@solana/spl-token";
 import {
   clusterApiUrl,
@@ -79,42 +80,33 @@ function createNewWallet(): Keypair {
   return newWallet;
 }
 
-async function transferToken() {
-  const fromWallet = createNewWallet();
-
-  aidropSolana(fromWallet.publicKey);
-
-  const toWallet = createNewWallet();
-
-  // Create mint token
-  const mint = await createToken(fromWallet);
-
-  const fromTokenAccount = await getOrCreateAssociatedTokenAccount(
-    connection,
-    fromWallet,
-    mint,
-    fromWallet.publicKey
-  );
-
-  const toTokenAccount = await getOrCreateAssociatedTokenAccount(
-    connection,
-    fromWallet,
-    mint,
-    toWallet.publicKey
-  );
-
+async function mintToken(
+  fromWallet: Keypair,
+  mint: PublicKey,
+  fromTokenAccount: PublicKey
+) {
   let signature = await mintTo(
     connection,
     fromWallet,
     mint,
-    fromTokenAccount.address,
+    fromTokenAccount,
     fromWallet.publicKey,
     1000 * LAMPORTS_PER_SOL
   );
 
   console.log("mint tx: ", signature);
+}
 
-  signature = await transfer(
+async function transferToken(
+  fromTokenAccount: Account,
+  toTokenAccount: Account,
+  mint: PublicKey
+) {
+  const fromWallet = createNewWallet();
+
+  aidropSolana(fromWallet.publicKey);
+
+  const signature = await transfer(
     connection,
     fromWallet,
     fromTokenAccount.address,
@@ -257,6 +249,10 @@ async function generateSignedTokenTransaction(
   transaction.sign(fromKeypair);
 
   const signedTransaction = transaction.serialize().toString("hex");
+
+  const hash = bs58.default.encode(transaction.signature as any);
+  console.log("hash: " + hash);
+
   return signedTransaction;
 }
 
@@ -272,6 +268,24 @@ async function submitSignedTransaction(signedTransaction: string) {
     console.log("Tx successfully with tx: ", txId);
   } catch (error) {
     console.error("Error when submit tx: ", error);
+  }
+}
+
+async function getTokenAccountInfo(tokenAccountAddress: PublicKey) {
+  const accountInfo = await connection.getParsedAccountInfo(
+    tokenAccountAddress
+  );
+  if (accountInfo.value) {
+    const data = accountInfo.value.data;
+
+    if (data && "parsed" in data) {
+      const owner = data.parsed.info.owner;
+      return owner;
+    } else {
+      console.log("Account data is not parsed or is in raw format.");
+    }
+  } else {
+    console.log("Token account not found.");
   }
 }
 
@@ -291,20 +305,39 @@ async function main() {
     return;
   }
 
-  const signedTx = await generateSignedTransaction(
+  const fromTokenAccount = await getOrCreateAssociatedTokenAccount(
+    connection,
+    fromWallet,
+    tokenAddress,
+    fromWallet.publicKey
+  );
+
+  const toTokenAccount = await getOrCreateAssociatedTokenAccount(
+    connection,
+    fromWallet,
+    tokenAddress,
+    toPublicKey
+  );
+
+  //   await mintToken(fromWallet, tokenAddress, fromTokenAccount.address);
+
+  //   const signedTx = await generateSignedTransaction(
+  //     fromWallet,
+  //     toPublicKey,
+  //     0.1
+  //   );
+
+  const signedTx = await generateSignedTokenTransaction(
     fromWallet,
     toPublicKey,
-    0.1
+    tokenAddress,
+    100
   );
 
   console.log("Tx: " + signedTx);
 
-  // const signedTx = await generateSignedTokenTransaction(
-  //   fromWallet,
-  //   toPublicKey,
-  //   tokenAddress,
-  //   100
-  // );
+  //   const address = await getTokenAccountInfo(toTokenAccount.address);
+  //   console.log("Owner address ", address);
 
   // await submitSignedTransaction(signedTx);
 
