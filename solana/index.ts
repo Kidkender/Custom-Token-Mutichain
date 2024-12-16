@@ -1,16 +1,32 @@
+import { Metaplex } from "@metaplex-foundation/js";
 import {
   AccountLayout,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountInstruction,
+  createInitializeMetadataPointerInstruction,
+  createInitializeMintInstruction,
   createMint,
   createTransferInstruction,
+  ExtensionType,
   getAssociatedTokenAddress,
+  getMinimumBalanceForRentExemptAccount,
   getMint,
-  getOrCreateAssociatedTokenAccount,
+  getMintLen,
+  getTokenMetadata,
+  LENGTH_SIZE,
   mintTo,
+  TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
+  TokenInvalidAccountOwnerError,
   transfer,
+  TYPE_SIZE,
   type Account,
 } from "@solana/spl-token";
+import {
+  createUpdateFieldInstruction,
+  pack,
+  type TokenMetadata,
+} from "@solana/spl-token-metadata";
 import {
   clusterApiUrl,
   Connection,
@@ -20,11 +36,16 @@ import {
   SystemProgram,
   Transaction,
   type Commitment,
+  type ParsedAccountData,
 } from "@solana/web3.js";
-import * as fs from "fs";
 import * as bs58 from "bs58";
+import * as fs from "fs";
 
 const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
+const connectionMainnet = new Connection(
+  clusterApiUrl("mainnet-beta"),
+  "confirmed"
+);
 
 function saveKeypair(wallet: Keypair) {
   const publicKey = wallet.publicKey.toBase58();
@@ -71,6 +92,62 @@ async function createToken(
     null,
     decimals ?? 9
   );
+
+  // const decimals = 9;
+  const name = "Duck Sol Token";
+  const symbol = "DST";
+
+  const metadata: TokenMetadata = {
+    updateAuthority: fromWallet.publicKey,
+    mint: mint,
+    name: name,
+    symbol: symbol,
+    uri: "https://gist.githubusercontent.com/Kidkender/f3a4db415f9f271538f46c8af6b78430/raw/0085567d2c9910976d1eafb8b385cb089c9e0b43/metadata.json",
+    additionalMetadata: [["description", "Only Possible On Solana"]],
+  };
+
+  const metadataExtension = TYPE_SIZE + LENGTH_SIZE;
+
+  const metadataLen = pack(metadata).length;
+
+  const mintLen = getMintLen([ExtensionType.MetadataPointer]);
+
+  const lamports = await connection.getMinimumBalanceForRentExemption(
+    mintLen + metadataExtension + metadataLen
+  );
+
+  const createAccountInstruction = SystemProgram.createAccount({
+    fromPubkey: fromWallet.publicKey,
+    newAccountPubkey: mint,
+    space: mintLen,
+    lamports,
+    programId: TOKEN_2022_PROGRAM_ID,
+  });
+
+  const initializeMetadataPointerInstruction =
+    createInitializeMetadataPointerInstruction(
+      mint,
+      fromWallet.publicKey,
+      mint,
+      TOKEN_2022_PROGRAM_ID
+    );
+
+  const initializeMintInstruction = createInitializeMintInstruction(
+    mint,
+    decimals ?? 9,
+    fromWallet.publicKey,
+    null,
+    TOKEN_2022_PROGRAM_ID
+  );
+
+  const updateFieldInstruction = createUpdateFieldInstruction({
+    programId: TOKEN_2022_PROGRAM_ID,
+    metadata: mint,
+    updateAuthority: fromWallet.publicKey,
+    field: metadata.additionalMetadata[0][0],
+    value: metadata.additionalMetadata[0][1],
+  });
+
   return mint;
 }
 
@@ -91,10 +168,69 @@ async function mintToken(
     mint,
     fromTokenAccount,
     fromWallet.publicKey,
-    1000 * LAMPORTS_PER_SOL
+    10000 * LAMPORTS_PER_SOL
   );
 
   console.log("mint tx: ", signature);
+}
+
+async function getTokenDetails(mintAddress: string) {
+  let metadata;
+  const mintPubKey = new PublicKey(mintAddress);
+  try {
+    metadata = await getTokenMetadata(
+      connection,
+      mintPubKey,
+      "confirmed",
+      TOKEN_PROGRAM_ID
+    );
+  } catch (error) {
+    if (error instanceof TokenInvalidAccountOwnerError) {
+      console.log("error getting token: ", error);
+    }
+  }
+
+  console.log("metadata: ", metadata);
+
+  const name = metadata ? metadata.name : "unknown";
+  const symbol = metadata ? metadata.symbol : "unknown";
+
+  const mint = await getMint(connection, mintPubKey);
+  const { supply, decimals } = mint;
+
+  console.log("symbol: ", symbol);
+  console.log("decimals: ", decimals);
+  console.log("supply: ", supply);
+}
+
+async function getTokenDetails1(mintAddress: string) {
+  const mintPubKey = new PublicKey(mintAddress);
+
+  try {
+    const metaplex = Metaplex.make(connection);
+
+    const nft = await metaplex.nfts().findByMint({ mintAddress: mintPubKey });
+
+    const name = nft.name || "unknown";
+    const symbol = nft.symbol || "unknown";
+    const uri = nft.uri || "unknown";
+
+    const mint = await getMint(connection, mintPubKey);
+    const { supply, decimals } = mint;
+
+    console.log("symbol: ", symbol);
+    console.log("decimals: ", decimals);
+    console.log("supply: ", supply);
+    console.log("name: ", name);
+    return {
+      name,
+      symbol,
+      decimals,
+      supply,
+    };
+  } catch (error) {
+    console.error("Error fetching token details:", error);
+  }
 }
 
 async function transferToken(
@@ -225,17 +361,18 @@ async function generateSignedTokenTransaction(
         fromKeypair.publicKey,
         toTokenAccount,
         toPublicKey,
-        tokenMinterAddress
+        tokenMinterAddress,
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID
       )
     );
   }
-
   transaction.add(
     createTransferInstruction(
       fromTokenAccount,
       toTokenAccount,
       fromKeypair.publicKey,
-      amountToken * LAMPORTS_PER_SOL,
+      amountToken,
       [],
       TOKEN_PROGRAM_ID
     )
@@ -289,6 +426,46 @@ async function getTokenAccountInfo(tokenAccountAddress: PublicKey) {
   }
 }
 
+async function getNativeAddressFromTokenAccount(
+  tokenAccountAddress: PublicKey
+): Promise<{ owner: PublicKey | null; mint: PublicKey | null }> {
+  const NATIVE_PROGRAM_ID = new PublicKey("11111111111111111111111111111111");
+  const accountInfo = await connection.getParsedAccountInfo(
+    tokenAccountAddress
+  );
+  if (accountInfo.value) {
+    const data = accountInfo.value.data;
+
+    if (data && "parsed" in data) {
+      const parsedData = data as ParsedAccountData;
+      const owner = parsedData.parsed.info.owner as PublicKey;
+      const mint = parsedData.parsed.info.mint as PublicKey;
+      return { owner, mint };
+    } else if (accountInfo.value.owner.equals(NATIVE_PROGRAM_ID)) {
+      return { owner: tokenAccountAddress, mint: null };
+    } else {
+      console.error("Account data is not parsed or is in raw format.");
+    }
+  } else {
+    console.error(`Token account not found: ${tokenAccountAddress} .`);
+  }
+
+  return { owner: tokenAccountAddress, mint: null };
+}
+
+async function getMinimumBalanceForRent(publicKey: string) {
+  const accountInfo = await connection.getAccountInfo(new PublicKey(publicKey));
+  if (accountInfo) {
+    console.log(`Account size: ${accountInfo.data.length} bytes`);
+    const accountSize = accountInfo.data.length;
+    const minimumBalanceForRent =
+      await connection.getMinimumBalanceForRentExemption(accountSize);
+    return minimumBalanceForRent;
+  } else {
+    throw new Error("Account not found or does not exist");
+  }
+}
+
 async function main() {
   const fromWallet = loadKeypair(
     "627g2t7xE2JsMRRJb35idoenusW2AXjzqQxwydsaSm12"
@@ -297,58 +474,17 @@ async function main() {
     "EPVaSvZ6iJrX819Kp5mokDWmMzxPdaWGXaYSk559ws6N"
   );
 
-  const tokenAddress = new PublicKey(
-    "2nNxEe6WTmWMwH6VUSUN2AuhSosDgQKPiFvLMy2PCuyD"
-  );
-
   if (!fromWallet) {
     return;
   }
 
-  const fromTokenAccount = await getOrCreateAssociatedTokenAccount(
+  const minBalanceRent = await getMinimumBalanceForRent(
+    "CnkfuFtpHYxMV8KBmxeARUhUy9bkQGYxzNeTPj3pc18U"
+  );
+  const rentMin = await getMinimumBalanceForRentExemptAccount(
     connection,
-    fromWallet,
-    tokenAddress,
-    fromWallet.publicKey
+    "confirmed"
   );
-
-  const toTokenAccount = await getOrCreateAssociatedTokenAccount(
-    connection,
-    fromWallet,
-    tokenAddress,
-    toPublicKey
-  );
-
-  //   await mintToken(fromWallet, tokenAddress, fromTokenAccount.address);
-
-  //   const signedTx = await generateSignedTransaction(
-  //     fromWallet,
-  //     toPublicKey,
-  //     0.1
-  //   );
-
-  const signedTx = await generateSignedTokenTransaction(
-    fromWallet,
-    toPublicKey,
-    tokenAddress,
-    100
-  );
-
-  console.log("Tx: " + signedTx);
-
-  //   const address = await getTokenAccountInfo(toTokenAccount.address);
-  //   console.log("Owner address ", address);
-
-  // await submitSignedTransaction(signedTx);
-
-  // await transferToken();
-  // await getAllTokensOfAccount(
-  //   new PublicKey("2TPDhtgQXJ9uR1njeSmae3KS62dMp6cW2WWdSEQYyAXo")
-  // );
-  //     await getInformationToken(
-  //         new PublicKey("6YbpFbafin7XfP7X8NK6pPus7vWHpMzKe1RCSwsqzFHz"))
-  // await getDetailTransaction("2NrN7iiwMU7KuBWiLxjosrjAJ2aStW4bufH65Cp8tMZGhhHtLg2ugDYZ22YT2RQYnRaTQ4McsX4UX8MKuCdUFgsK");
-  //   await getTokenTransactions("BoKxSSv54PAuCFnKEqdiPewWYR1WeHPBpCoUQ7t3xyXV");
 }
 
 main();
