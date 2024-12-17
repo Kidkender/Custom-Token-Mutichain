@@ -5,11 +5,10 @@ import {
   createAssociatedTokenAccountInstruction,
   createInitializeMetadataPointerInstruction,
   createInitializeMintInstruction,
-  createMint,
   createTransferInstruction,
   ExtensionType,
   getAssociatedTokenAddress,
-  getMinimumBalanceForRentExemptAccount,
+  getMetadataPointerState,
   getMint,
   getMintLen,
   getTokenMetadata,
@@ -23,6 +22,7 @@ import {
   type Account,
 } from "@solana/spl-token";
 import {
+  createInitializeInstruction,
   createUpdateFieldInstruction,
   pack,
   type TokenMetadata,
@@ -33,6 +33,7 @@ import {
   Keypair,
   LAMPORTS_PER_SOL,
   PublicKey,
+  sendAndConfirmTransaction,
   SystemProgram,
   Transaction,
   type Commitment,
@@ -81,28 +82,24 @@ async function aidropSolana(address: PublicKey) {
 }
 
 async function createToken(
-  fromWallet: Keypair,
-  freezeAuth?: PublicKey,
-  decimals?: number
-): Promise<PublicKey> {
-  const mint = await createMint(
-    connection,
-    fromWallet,
-    fromWallet.publicKey,
-    null,
-    decimals ?? 9
-  );
-
-  // const decimals = 9;
-  const name = "Duck Sol Token";
-  const symbol = "DST";
+  mintAuthority: Keypair,
+  updateAuthority: Keypair | null,
+  freezeAuthority: PublicKey | null,
+  payer: Keypair | null,
+  name: string,
+  symbol: string,
+  uri: string,
+  decimals: number
+): Promise<string> {
+  const mintKeypair = Keypair.generate();
+  const mint = mintKeypair.publicKey;
 
   const metadata: TokenMetadata = {
-    updateAuthority: fromWallet.publicKey,
+    updateAuthority: mintAuthority.publicKey,
     mint: mint,
     name: name,
     symbol: symbol,
-    uri: "https://gist.githubusercontent.com/Kidkender/f3a4db415f9f271538f46c8af6b78430/raw/0085567d2c9910976d1eafb8b385cb089c9e0b43/metadata.json",
+    uri: uri,
     additionalMetadata: [["description", "Only Possible On Solana"]],
   };
 
@@ -117,7 +114,7 @@ async function createToken(
   );
 
   const createAccountInstruction = SystemProgram.createAccount({
-    fromPubkey: fromWallet.publicKey,
+    fromPubkey: mintAuthority.publicKey,
     newAccountPubkey: mint,
     space: mintLen,
     lamports,
@@ -127,7 +124,7 @@ async function createToken(
   const initializeMetadataPointerInstruction =
     createInitializeMetadataPointerInstruction(
       mint,
-      fromWallet.publicKey,
+      mintAuthority.publicKey,
       mint,
       TOKEN_2022_PROGRAM_ID
     );
@@ -135,20 +132,45 @@ async function createToken(
   const initializeMintInstruction = createInitializeMintInstruction(
     mint,
     decimals ?? 9,
-    fromWallet.publicKey,
+    mintAuthority.publicKey,
     null,
     TOKEN_2022_PROGRAM_ID
   );
 
+  const initializeMetadataInstruction = createInitializeInstruction({
+    programId: TOKEN_2022_PROGRAM_ID,
+    metadata: mint,
+    updateAuthority: mintAuthority.publicKey,
+    mint: mint,
+    mintAuthority: mintAuthority.publicKey,
+    name: metadata.name,
+    symbol: metadata.symbol,
+    uri: metadata.uri,
+  });
+
   const updateFieldInstruction = createUpdateFieldInstruction({
     programId: TOKEN_2022_PROGRAM_ID,
     metadata: mint,
-    updateAuthority: fromWallet.publicKey,
+    updateAuthority: mintAuthority.publicKey,
     field: metadata.additionalMetadata[0][0],
     value: metadata.additionalMetadata[0][1],
   });
 
-  return mint;
+  const transaction = new Transaction().add(
+    createAccountInstruction,
+    initializeMetadataPointerInstruction,
+    initializeMintInstruction,
+    initializeMetadataInstruction,
+    updateFieldInstruction
+  );
+
+  const transactionSignature = await sendAndConfirmTransaction(
+    connection,
+    transaction,
+    [mintAuthority, mintKeypair]
+  );
+
+  return transactionSignature;
 }
 
 function createNewWallet(): Keypair {
@@ -478,13 +500,33 @@ async function main() {
     return;
   }
 
-  const minBalanceRent = await getMinimumBalanceForRent(
-    "CnkfuFtpHYxMV8KBmxeARUhUy9bkQGYxzNeTPj3pc18U"
+  // const signature = await createToken(
+  //   fromWallet,
+  //   null,
+  //   null,
+  //   null,
+  //   "Dogs Token",
+  //   "DOGS",
+  //   "https://gist.githubusercontent.com/Kidkender/f3a4db415f9f271538f46c8af6b78430/raw/0085567d2c9910976d1eafb8b385cb089c9e0b43/metadata.json",
+  //   9
+  // );
+
+  // console.log("Signature: " + signature);
+
+  const mintAddress = new PublicKey(
+    "8RggNKqNEvSwa5AVUeor1mFv4JCxjPAvPLKbq8PtWpcb"
   );
-  const rentMin = await getMinimumBalanceForRentExemptAccount(
+  const mintInfo = await getMint(
     connection,
-    "confirmed"
+    mintAddress,
+    "confirmed",
+    TOKEN_2022_PROGRAM_ID
   );
+  const metadataPointer = getMetadataPointerState(mintInfo);
+  console.log("\nMetadata Pointer:", JSON.stringify(metadataPointer, null, 2));
+
+  const metadata = await getTokenMetadata(connection, mintAddress);
+  console.log("\nMetadata:", JSON.stringify(metadata, null, 2));
 }
 
 main();
