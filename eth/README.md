@@ -35,3 +35,12 @@ npx hardhat ignition deployments
 ```bash
     npx hardhat ignition wipe deploymentId futureId
 ```
+
+### Verify smart contract
+
+```bash
+    npx hardhat verify --network amoy 0xba0f945493eb503233411e2383b3b45cb9af7cd7 "Polygon Tbet Token" "PTBET" 200000000
+```
+
+Example:
+<https://sepolia.etherscan.io/address/0xF565D310818dD8Ae9854c1B9e881Fe55704795fF#code>

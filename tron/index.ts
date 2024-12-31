@@ -27,10 +27,13 @@ async function getInforToken(address: string): Promise<Contract> {
   const decimals = await token.decimals().call();
   const totalSupply = await token.totalSupply().call();
 
+  const owner = await token.owner().call();
+  const ownerReadable = await tronweb.address.fromHex(owner);
   console.log("name: " + name);
   console.log("symbol: " + symbol);
   console.log("decimals: " + decimals);
   console.log("totalSupply: " + convertUnitToNumber(totalSupply, decimals));
+  console.log("Owner contract: " + ownerReadable);
   return token;
 }
 
@@ -82,16 +85,21 @@ async function getTransactionFromAccount(address: string) {
   }
 }
 
+async function transferOwner(contractAddress: string, toAddress: string) {
+  const tokenContract = await tronweb.contract().at(contractAddress);
+  const tx = await tokenContract.transferOwnership(toAddress);
+}
+
 async function main() {
-  const tokenAddress = "TBBwdLDUbUo7hX4YT7BXpDop1uDstMnmFN";
+  const tokenAddress = "TTtqEzeS3rsKwKDgivdCE7fVWEq4M3L88J";
   const wallet2 = "TDBbkYtZe4QtgRmPU5FQfzpoM3ouiRHr5x";
 
   // await sendNativeToken(wallet2, 10);
   // await sendTRCToken(tokenAddress, wallet2, 150);
-  // const token = await getInforToken(tokenAddress);
+  const token = await getInforToken(tokenAddress);
 
-  const resut = await getTransactionFromAccount(wallet2);
-  console.log(resut);
+  // const resut = await getTransactionFromAccount(wallet2);
+  // console.log(resut);
 }
 
 main();

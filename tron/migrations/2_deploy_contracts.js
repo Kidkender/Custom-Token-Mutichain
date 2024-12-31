@@ -1,5 +1,5 @@
 var MyContract = artifacts.require("./Token.sol");
 
 module.exports = function (deployer) {
-  deployer.deploy(MyContract, "Duck Token", "DT", 18);
+  deployer.deploy(MyContract, "Tron Tbet Token", "TTBET", 18);
 };

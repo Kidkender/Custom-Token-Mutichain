@@ -11,6 +11,7 @@ import {
   getMetadataPointerState,
   getMint,
   getMintLen,
+  getOrCreateAssociatedTokenAccount,
   getTokenMetadata,
   LENGTH_SIZE,
   mintTo,
@@ -182,15 +183,19 @@ function createNewWallet(): Keypair {
 async function mintToken(
   fromWallet: Keypair,
   mint: PublicKey,
-  fromTokenAccount: PublicKey
+  amount: number,
+  destination: PublicKey
 ) {
   let signature = await mintTo(
     connection,
     fromWallet,
     mint,
-    fromTokenAccount,
+    destination,
     fromWallet.publicKey,
-    10000 * LAMPORTS_PER_SOL
+    amount * LAMPORTS_PER_SOL,
+    [],
+    undefined,
+    TOKEN_2022_PROGRAM_ID
   );
 
   console.log("mint tx: ", signature);
@@ -502,31 +507,71 @@ async function main() {
 
   // const signature = await createToken(
   //   fromWallet,
+  //   fromWallet,
+  //   fromWallet.publicKey,
   //   null,
-  //   null,
-  //   null,
-  //   "Dogs Token",
-  //   "DOGS",
-  //   "https://gist.githubusercontent.com/Kidkender/f3a4db415f9f271538f46c8af6b78430/raw/0085567d2c9910976d1eafb8b385cb089c9e0b43/metadata.json",
+  //   "Sol TBET Token",
+  //   "STBET",
+  //   "https://gist.githubusercontent.com/Kidkender/063e0a6157974a592ff5c9457cb0b3ea/raw/6163c23e9a97e8eb25eceb7f76f521149d58b08d/solana-minter-metadata.json",
   //   9
   // );
 
   // console.log("Signature: " + signature);
 
   const mintAddress = new PublicKey(
-    "8RggNKqNEvSwa5AVUeor1mFv4JCxjPAvPLKbq8PtWpcb"
+    "EGZbczejbSu5S89e3G2NUBpyPyKpy9DczkJL7x5QwAMy"
   );
+
+  const destinationAccount = await getOrCreateAssociatedTokenAccount(
+    connection,
+    fromWallet,
+    mintAddress,
+    fromWallet.publicKey,
+    false,
+    "confirmed",
+    undefined,
+    TOKEN_2022_PROGRAM_ID
+  );
+
+  console.log("destinationAccount: " + destinationAccount.address);
+
+  const ata = await getAssociatedTokenAddress(
+    mintAddress,
+    fromWallet.publicKey,
+    false,
+    TOKEN_2022_PROGRAM_ID
+  );
+  console.log("Associated Token Address:", ata.toBase58());
+
   const mintInfo = await getMint(
     connection,
     mintAddress,
     "confirmed",
     TOKEN_2022_PROGRAM_ID
   );
-  const metadataPointer = getMetadataPointerState(mintInfo);
-  console.log("\nMetadata Pointer:", JSON.stringify(metadataPointer, null, 2));
+  console.log("Mint Authority:", mintInfo.mintAuthority?.toBase58());
 
-  const metadata = await getTokenMetadata(connection, mintAddress);
-  console.log("\nMetadata:", JSON.stringify(metadata, null, 2));
+  const accountInfo = await connection.getParsedAccountInfo(mintAddress);
+  console.log("Owner Program:", accountInfo.value?.owner.toBase58());
+
+  await mintToken(
+    fromWallet,
+    mintAddress,
+    200000000,
+    destinationAccount.address
+  );
+
+  // const mintInfo = await getMint(
+  //   connection,
+  //   mintAddress,
+  //   "confirmed",
+  //   TOKEN_2022_PROGRAM_ID
+  // );
+  // const metadataPointer = getMetadataPointerState(mintInfo);
+  // console.log("\nMetadata Pointer:", JSON.stringify(metadataPointer, null, 2));
+
+  // const metadata = await getTokenMetadata(connection, mintAddress);
+  // console.log("\nMetadata:", JSON.stringify(metadata, null, 2));
 }
 
 main();
