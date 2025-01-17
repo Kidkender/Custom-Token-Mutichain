@@ -3,7 +3,9 @@ import dotenv from "dotenv";
 import axios from "axios";
 
 dotenv.config();
-const baseUriApi = "https://nile.trongrid.io";
+// const baseUriApi = "https://nile.trongrid.io";
+
+const baseUriApi = "https://api.shasta.trongrid.io";
 
 const tronweb = new TronWeb({
   fullHost: baseUriApi,
@@ -91,13 +93,13 @@ async function transferOwner(contractAddress: string, toAddress: string) {
 }
 
 async function main() {
-  const tokenAddress = "TTtqEzeS3rsKwKDgivdCE7fVWEq4M3L88J";
+  const tokenAddress = "TL8gLM6NXuvwfRkiT6q8q23yga7SJZY4dW";
   const wallet2 = "TDBbkYtZe4QtgRmPU5FQfzpoM3ouiRHr5x";
 
   // await sendNativeToken(wallet2, 10);
   // await sendTRCToken(tokenAddress, wallet2, 150);
   const token = await getInforToken(tokenAddress);
-
+  console.log("token: " + token);
   // const resut = await getTransactionFromAccount(wallet2);
   // console.log(resut);
 }
