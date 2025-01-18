@@ -29,14 +29,19 @@ const config: HardhatUserConfig = {
       url: "https://1rpc.io/sepolia",
     },
     mainnet: {
-      chainId: 97,
-      url: "https://ethereum-rpc.publicnode.com",
+      chainId: 1,
+      url: "https://eth.blockrazor.xyz",
       accounts: [secretKey],
     },
     amoy: {
       chainId: 80002,
       url: "https://rpc-amoy.polygon.technology",
       accounts: [secretKey],
+    },
+    polygon: {
+      chainId: 137,
+      accounts: [secretKey],
+      url: "https://1rpc.io/matic",
     },
   },
   gasReporter: {
@@ -48,6 +53,7 @@ const config: HardhatUserConfig = {
     apiKey: {
       sepolia: etherscanKey,
       amoy: polygonScanKey,
+      mainnet: etherscanKey,
     },
     customChains: [
       {
