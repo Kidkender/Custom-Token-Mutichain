@@ -21,6 +21,7 @@ import {
   type TokenMetadata,
 } from "@solana/spl-token-metadata";
 import {
+  clusterApiUrl,
   Connection,
   Keypair,
   LAMPORTS_PER_SOL,
@@ -48,7 +49,6 @@ import {
 import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
 
 import { base58 } from "@metaplex-foundation/umi/serializers";
-import { createMint } from "@solana/spl-token";
 import {
   createFungible,
   mplTokenMetadata,
@@ -62,9 +62,9 @@ export async function createToken(
   symbol: string,
   metadataUri: string,
   decimals: number,
-  totalSupply: number
+  totalSupply: string
 ): Promise<string> {
-  const umi = createUmi("https://api.devnet.solana.com")
+  const umi = createUmi(clusterApiUrl("mainnet-beta"))
     .use(mplTokenMetadata())
     .use(mplToolbox())
     .use(irysUploader());
@@ -101,14 +101,32 @@ export async function createToken(
       mint: mintSigner.publicKey,
       owner: umi.identity.publicKey,
     }),
-    amount: BigInt(totalSupply * LAMPORTS_PER_SOL),
+    amount: BigInt(totalSupply),
   });
 
   console.log("Sending transaction");
+
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash("confirmed");
+
   const tx = await createFungibleIx
     .add(createTokenIx)
     .add(mintTokensIx)
-    .sendAndConfirm(umi);
+    .setBlockhash({
+      blockhash,
+      lastValidBlockHeight: lastValidBlockHeight,
+    })
+    .sendAndConfirm(umi, {
+      send: {
+        skipPreflight: true,
+        maxRetries: 1,
+      },
+      confirm: {
+        commitment: "confirmed",
+      },
+    });
+
+  console.log("Transaction successful:", tx.signature);
 
   const balanceAfter = await connection.getBalance(fromWallet.publicKey);
   const solSpent = (balanceBefore - balanceAfter) / LAMPORTS_PER_SOL;
@@ -126,6 +144,38 @@ export async function createToken(
 
   return mintSigner.publicKey.toString();
 }
+
+// export async function update(
+//   name: string,
+//   symbol: string,
+//   uri: string,
+//   fromKeypair: Keypair
+// ) {
+//   const TOKEN_METADATA_PROGRAM_ID = new PublicKey(
+//     "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+//   );
+//   const mintKey = new PublicKey("7nirqpoZpA9PKyxwhEMzgvrn5Tv3Qop8YWbXZ8GXTDnN");
+
+//   const [metadatakey] = await PublicKey.findProgramAddress(
+//     [
+//       Buffer.from("metadata"),
+//       TOKEN_METADATA_PROGRAM_ID.toBuffer(),
+//       mintKey.toBuffer(),
+//     ],
+//     TOKEN_METADATA_PROGRAM_ID
+//   );
+
+//   const data: DataV2 = {
+//     name,
+//     symbol,
+//     uri,
+//   };
+
+//   const accounts: UpdateMetadataAccountV2InstructionAccounts = {
+//     metadata: metadatakey,
+//     updateAuthority: fromKeypair.publicKey,
+//   };
+// }
 
 export async function createToken2022(
   connection: Connection,
