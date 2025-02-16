@@ -9,6 +9,8 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
+    "bip39": "^3.1.0",
+    "stellar-hd-wallet": "^0.0.10",
     "stellar-sdk": "^13.1.0"
   }
 }
